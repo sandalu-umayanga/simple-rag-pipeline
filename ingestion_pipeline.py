@@ -1,28 +1,28 @@
-# Import required libraries
 import os
+import time
 import warnings
 from dotenv import load_dotenv
 from langchain_chroma import Chroma
 from langchain_community.document_loaders import DirectoryLoader, TextLoader
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_nvidia_ai_endpoints import NVIDIAEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-# Suppress deprecation warnings and load environment variables
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 load_dotenv()
 
 
 def load_documents(docs_path="docs"):
-    """Load text documents from a specified directory."""
     print(f"Loading documents from {docs_path}...")
     if not os.path.exists(docs_path):
         raise FileNotFoundError(f"Directory '{docs_path}' does not exist.")
 
-    # Create a directory loader to load all .txt files
-    loader = DirectoryLoader(path=docs_path, glob="*.txt", loader_cls=TextLoader)
+    loader = DirectoryLoader(
+        path=docs_path,
+        glob="*.txt",
+        loader_cls=TextLoader
+    )
     documents = loader.load()
 
-    # Ensure documents were found
     if len(documents) == 0:
         raise ValueError(f"No text files found in directory '{docs_path}'.")
 
@@ -30,10 +30,8 @@ def load_documents(docs_path="docs"):
     return documents
 
 
-def split_documents(documents, chunk_size=800, chunk_overlap=100):
-    """Split documents into smaller chunks for embedding."""
-    print(f"Splitting documents into chunks of size {chunk_size}...")
-    # Create a recursive text splitter with specified chunk size and overlap
+def split_documents(documents, chunk_size=1000, chunk_overlap=150):
+    print(f"Splitting documents into chunks (size={chunk_size}, overlap={chunk_overlap})...")
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
@@ -44,34 +42,38 @@ def split_documents(documents, chunk_size=800, chunk_overlap=100):
     return chunks
 
 
-def create_vector_store(chunks, persist_directory="db/chroma_db"):
-    """Create and persist a vector store using Google's embedding model."""
-    print(f"Creating vector store in {persist_directory} using Gemini Embeddings...")
+def create_vector_store(chunks, persist_directory="db/chroma_db", batch_size=50):
+    print(f"Initializing vector store in {persist_directory} with NVIDIA Embeddings...")
 
-    # Initialize Google's embedding model
-    embedding_model = GoogleGenerativeAIEmbeddings(
-        model="models/text-embedding-001"
+    # Initialize NVIDIA Embeddings
+    embedding_model = NVIDIAEmbeddings(
+        model="nvidia/nemotron-3-embed-1b",
+        truncate="END"  # Truncates inputs safely if they exceed max token length
     )
 
-    # Create vector store from documents with cosine similarity metric
-    vector_store = Chroma.from_documents(
-        documents=chunks,
-        embedding=embedding_model,
+    vector_store = Chroma(
         persist_directory=persist_directory,
+        embedding_function=embedding_model,
         collection_metadata={"hnsw:space": "cosine"}
     )
 
-    print(f"Vector store created and saved to {persist_directory}.")
+    total_chunks = len(chunks)
+    print(f"Embedding {total_chunks} chunks in batches of {batch_size}...")
+
+    for i in range(0, total_chunks, batch_size):
+        batch = chunks[i:i + batch_size]
+        print(f"-> Ingesting chunks {i + 1} to {min(i + batch_size, total_chunks)} of {total_chunks}...")
+        vector_store.add_documents(batch)
+        time.sleep(0.5)
+
+    print(f"\nVector store successfully populated at '{persist_directory}'.")
     return vector_store
 
 
 def main():
-    """Main function to orchestrate the ingestion pipeline."""
-    # Load documents from disk
+    # Remove any old Chroma vector store to prevent dimension mismatch issues
     documents = load_documents()
-    # Split documents into chunks
     chunks = split_documents(documents)
-    # Create and persist vector store
     create_vector_store(chunks)
 
 
