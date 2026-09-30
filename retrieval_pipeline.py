@@ -1,9 +1,11 @@
+import os
 from dotenv import load_dotenv
 from langchain_chroma import Chroma
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langchain_nvidia_ai_endpoints import ChatNVIDIA, NVIDIAEmbeddings
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
 load_dotenv()
 persist_directory = "db/chroma_db"
@@ -29,11 +31,9 @@ retriever = db.as_retriever(
 
 # 2. Initialize chat model with a reliable NIM endpoint
 llm = ChatNVIDIA(
-    model="meta/llama3-8b-instruct",
+    model="nvidia/nemotron-3-ultra-550b-a55b",
     temperature=0.1,
-    max_tokens=512,
 )
-
 # 3. Prompt template
 template = """You are a helpful assistant. Use ONLY the following retrieved context to answer the user's question.
 If the answer cannot be found in the context, respond with "I cannot answer this question based on the provided documents."
